@@ -2,11 +2,14 @@ package dadb.adbserver
 
 import dadb.AdbStream
 import dadb.Dadb
+import dadb.ShellProtocol
 import okio.buffer
 import okio.sink
 import okio.source
 import java.io.*
+import java.net.InetSocketAddress
 import java.net.Socket
+import java.nio.channels.SocketChannel
 import java.nio.charset.StandardCharsets
 
 
@@ -123,17 +126,23 @@ private class AdbServerDadb constructor(
 ) : Dadb {
 
     private val supportedFeatures: Set<String>
+    private val deviceApiLevel: Int
 
     init {
         supportedFeatures = open("host:features").use {
             val features = AdbServer.readString(DataInputStream(it.source.inputStream()))
             features.split(",").toSet()
         }
+        // ALWAYS to this with protocol 1, otherwise we will end up in endless recursion
+        deviceApiLevel = openShell("getprop ro.build.version.sdk", ShellProtocol.V1).readAll().output.trim().toIntOrNull() ?: error("Failed to capture device API level")
     }
 
     override fun open(destination: String): AdbStream {
         AdbBinary.ensureServerRunning(host, port)
-        val socket = Socket(host, port)
+        val socketChannel = SocketChannel.open()
+        socketChannel.connect(InetSocketAddress(host, port))
+        val socket = socketChannel.socket()
+        socket.soTimeout = 300
         AdbServer.send(socket, deviceQuery)
         AdbServer.send(socket, destination)
         return object : AdbStream {
@@ -142,12 +151,16 @@ private class AdbServerDadb constructor(
 
             override val sink = socket.sink().buffer()
 
-            override fun close() = socket.close()
+            override fun close() = socketChannel.close()
         }
     }
 
     override fun supportsFeature(feature: String): Boolean {
         return feature in supportedFeatures
+    }
+
+    override fun getDeviceApiLevel(): Int {
+        return this.deviceApiLevel
     }
 
     override fun close() {}

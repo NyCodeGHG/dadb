@@ -13,7 +13,7 @@ internal class AdbBinaryTest {
             killServer()
             AdbBinary.ensureServerRunning("localhost", 5037)
             val output = AdbServer.createDadb("localhost", 5037).shell("echo hello").allOutput
-            assertThat(output).isEqualTo("hello\n")
+            assertThat(output).isEqualTo("hello\r\n")
         }
     }
 

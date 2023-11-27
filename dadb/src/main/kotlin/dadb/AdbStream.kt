@@ -47,7 +47,7 @@ internal class AdbStreamImpl internal constructor(
             val message = message() ?: return -1
 
             val bytesRemaining = message.payloadLength - bytesRead
-            val bytesToRead = Math.min(byteCount.toInt(), bytesRemaining)
+            val bytesToRead = byteCount.toInt().coerceAtMost(bytesRemaining)
 
             sink.write(message.payload, bytesRead, bytesToRead)
 

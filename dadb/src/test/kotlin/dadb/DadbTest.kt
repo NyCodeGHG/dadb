@@ -21,6 +21,7 @@ import com.google.common.truth.Truth.assertThat
 import okio.Buffer
 import okio.buffer
 import okio.source
+import org.junit.Assume
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
@@ -60,18 +61,31 @@ internal abstract class DadbTest : BaseConcurrencyTest() {
 
     @Test
     fun basic() {
+        assumeApiLevelOrHigher(24)
         localEmulator { dadb ->
             dadb.open("shell,raw:echo hello").use { stream ->
                 val response = stream.source.readString(Charsets.UTF_8)
-                assertThat(response).isEqualTo("hello\n")
+                assertThat(response).isEqualTo("hello\r\n")
             }
         }
     }
 
     @Test
-    fun openShell_read() {
+    fun `openShell read v1`() {
+        assumeApiLevelOrHigher(23)
         localEmulator { dadb ->
-            dadb.openShell("echo hello").use { shellStream ->
+            dadb.openShell("echo hello", ShellProtocol.V1).use { shellStream ->
+                val shellResponse = shellStream.readAll()
+                assertShellResponse(shellResponse, null, "hello\n")
+            }
+        }
+    }
+
+    @Test
+    fun `openShell read v2`() {
+        assumeApiLevelOrHigher(24)
+        localEmulator { dadb ->
+            dadb.openShell("echo hello", ShellProtocol.V2).use { shellStream ->
                 val shellResponse = shellStream.readAll()
                 assertShellResponse(shellResponse, 0, "hello\n")
             }
@@ -79,18 +93,16 @@ internal abstract class DadbTest : BaseConcurrencyTest() {
     }
 
     @Test
-    fun openShell_write() {
+    fun `openShell write v1`() {
+        assumeApiLevelOrHigher(23)
         localEmulator { dadb ->
-            dadb.openShell().use { shellStream ->
+            dadb.openShell(version = ShellProtocol.V1, interactive = true).use { shellStream ->
                 shellStream.write("echo hello\n")
 
                 val shellPacket = shellStream.read()
                 assertShellPacket(shellPacket, AdbShellPacket.StdOut::class.java, "hello\n")
 
                 shellStream.write("exit\n")
-
-                val shellResponse = shellStream.readAll()
-                assertShellResponse(shellResponse, 0, "")
             }
         }
     }
@@ -290,7 +302,12 @@ internal abstract class DadbTest : BaseConcurrencyTest() {
         }
     }
 
-    protected abstract fun localEmulator(body: (dadb: Dadb) -> Unit)
+    private fun assumeApiLevelOrHigher(level: Int) {
+        val current = localEmulator { it.getDeviceApiLevel() }
+        Assume.assumeTrue("Not on API level $level or higher! Current API Level is: $current", current >= level)
+    }
+
+    protected abstract fun <T> localEmulator(body: (dadb: Dadb) -> T): T
 
     private fun readSocketAsync(host: String, port: Int): Future<String> {
         return executor

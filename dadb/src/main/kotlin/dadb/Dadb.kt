@@ -39,10 +39,25 @@ interface Dadb : AutoCloseable {
     }
 
     @Throws(IOException::class)
-    fun openShell(command: String = ""): AdbShellStream {
-        val stream = open("shell,v2,raw:$command")
-        return AdbShellStream(stream)
+    fun openShell(
+        command: String = "",
+        version: ShellProtocol = if (getDeviceApiLevel() >= 24) ShellProtocol.V2 else ShellProtocol.V1,
+        interactive: Boolean = false,
+    ): AdbShellStream {
+        return when (version) {
+            ShellProtocol.V1 -> {
+                val stream = open("exec:$command")
+                AdbShellV1Stream(stream)
+            }
+            ShellProtocol.V2 -> {
+                val stream = open("shell,v2,raw:$command")
+                AdbShellV2Stream(stream)
+            }
+        }
     }
+
+    @Throws(IOException::class)
+    fun getDeviceApiLevel(): Int
 
     @Throws(IOException::class)
     fun push(src: File, remotePath: String, mode: Int = readMode(src), lastModifiedMs: Long = src.lastModified()) {
@@ -184,8 +199,8 @@ interface Dadb : AutoCloseable {
 
     @Throws(IOException::class)
     fun uninstall(packageName: String) {
-        val response = shell("cmd package uninstall $packageName")
-        if (response.exitCode != 0) {
+        val response = shell("pm uninstall $packageName")
+        if (response.exitCode?.let { it != 0 } == true) {
             throw IOException("Uninstall failed: ${response.allOutput}")
         }
     }
@@ -297,4 +312,9 @@ interface Dadb : AutoCloseable {
             return Files.getAttribute(file.toPath(), "unix:mode") as? Int ?: throw RuntimeException("Unable to read file mode")
         }
     }
+}
+
+enum class ShellProtocol {
+    V1,
+    V2,
 }

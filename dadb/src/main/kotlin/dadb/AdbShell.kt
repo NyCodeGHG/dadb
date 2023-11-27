@@ -22,7 +22,12 @@ package dadb
 import dadb.AdbShellPacket.Exit
 import dadb.AdbShellPacket.StdError
 import dadb.AdbShellPacket.StdOut
+import okio.Buffer
+import okio.Options
+import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.net.SocketTimeoutException
+import java.util.concurrent.TimeUnit
 
 const val ID_STDIN = 0
 const val ID_STDOUT = 1
@@ -30,12 +35,12 @@ const val ID_STDERR = 2
 const val ID_EXIT = 3
 const val ID_CLOSE_STDIN = 3
 
-class AdbShellStream(
+class AdbShellV2Stream(
         private val stream: AdbStream
-) : AutoCloseable {
+) : AdbShellStream {
 
     @Throws(IOException::class)
-    fun readAll(): AdbShellResponse {
+    override fun readAll(): AdbShellResponse {
         val output = StringBuilder()
         val errorOutput = StringBuilder()
         while (true) {
@@ -57,7 +62,7 @@ class AdbShellStream(
     }
 
     @Throws(IOException::class)
-    fun read(): AdbShellPacket {
+    override fun read(): AdbShellPacket {
         stream.source.apply {
             val id = checkId(readByte().toInt())
             val length = checkLength(id, readIntLe())
@@ -72,12 +77,12 @@ class AdbShellStream(
     }
 
     @Throws(IOException::class)
-    fun write(string: String) {
+    override fun write(string: String) {
         write(ID_STDIN, string.toByteArray())
     }
 
     @Throws(IOException::class)
-    fun write(id: Int, payload: ByteArray? = null) {
+    override fun write(id: Int, payload: ByteArray?) {
         stream.sink.apply {
             writeByte(id)
             writeIntLe(payload?.size ?: 0)
@@ -126,11 +131,64 @@ sealed class AdbShellPacket(
 
 class AdbShellResponse(
         val output: String,
-        val errorOutput: String,
-        val exitCode: Int
+        val errorOutput: String?,
+        val exitCode: Int?
 ) {
 
-    val allOutput: String by lazy { "$output$errorOutput" }
+    val allOutput: String by lazy { "$output${errorOutput ?: ""}" }
 
-    override fun toString() = "Shell response ($exitCode):\n$allOutput"
+    override fun toString() = "Shell response (${exitCode ?: "exit code not available"}):\n$allOutput"
+}
+
+class AdbShellV1Stream(
+    private val stream: AdbStream
+) : AdbShellStream {
+
+    @Throws(IOException::class)
+    override fun readAll(): AdbShellResponse {
+        val data = read()
+        return AdbShellResponse(data.payload.toString(Charsets.UTF_8), null, null)
+    }
+
+    override fun read(): AdbShellPacket {
+        val buffer = Buffer()
+        val out = ByteArrayOutputStream()
+        try {
+            while (stream.source.read(buffer, 2048L) > 0) {
+                buffer.writeTo(out)
+                buffer.flush()
+            }
+        } catch (_: SocketTimeoutException) { }
+        return StdOut(out.toByteArray())
+    }
+
+    override fun write(string: String) {
+        write(0, string.toByteArray())
+    }
+
+    override fun write(id: Int, payload: ByteArray?) {
+        with(stream.sink) {
+            if (payload != null) write(payload)
+            flush()
+        }
+    }
+
+    override fun close() {
+        stream.close()
+    }
+}
+
+interface AdbShellStream : AutoCloseable {
+
+    @Throws(IOException::class)
+    fun readAll(): AdbShellResponse
+
+    @Throws(IOException::class)
+    fun read(): AdbShellPacket
+
+    @Throws(IOException::class)
+    fun write(string: String)
+
+    @Throws(IOException::class)
+    fun write(id: Int, payload: ByteArray? = null)
 }

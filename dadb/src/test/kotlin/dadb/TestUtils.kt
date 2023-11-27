@@ -22,7 +22,7 @@ import java.io.IOException
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
 
-fun assertShellResponse(shellResponse: AdbShellResponse, exitCode: Int, allOutput: String) {
+fun assertShellResponse(shellResponse: AdbShellResponse, exitCode: Int?, allOutput: String) {
     Truth.assertThat(shellResponse.allOutput).isEqualTo(allOutput)
     Truth.assertThat(shellResponse.exitCode).isEqualTo(exitCode)
 }
