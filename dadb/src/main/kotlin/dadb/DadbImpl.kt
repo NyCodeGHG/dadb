@@ -26,7 +26,7 @@ internal class DadbImpl(
         private val keyPair: AdbKeyPair? = null
 ) : Dadb {
 
-    private val deviceApiLevel: Int = openShell("getprop ro.build.version.sdk", ShellProtocol.V1).readAll().output.toIntOrNull() ?: error("failed to read device's API level")
+    private val deviceApiLevel: Int = openShellV1("getprop ro.build.version.sdk").readAll().toString().toIntOrNull() ?: error("failed to read device's API level")
 
     private var connection: Pair<AdbConnection, Socket>? = null
 
@@ -62,7 +62,6 @@ internal class DadbImpl(
 
     private fun newConnection(): Pair<AdbConnection, Socket> {
         val socket = Socket(host, port)
-        socket.soTimeout = 300
         val adbConnection = AdbConnection.connect(socket, keyPair)
         return adbConnection to socket
     }

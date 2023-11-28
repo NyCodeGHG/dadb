@@ -33,27 +33,38 @@ interface Dadb : AutoCloseable {
 
     @Throws(IOException::class)
     fun shell(command: String): AdbShellResponse {
-        openShell(command).use { stream ->
-            return stream.readAll()
+        return if (getDeviceApiLevel() < 24) {
+            val stream = openShellV1("$command;echo \"EXIT_CODE_START$?COMMAND_FINISH_MARKER\"")
+            val sb = StringBuilder()
+            do {
+                sb.append(stream.read())
+            } while (!sb.contains("COMMAND_FINISH_MARKER"))
+            val value = sb.toString()
+            val exitCodeMarkerIndex = value.indexOf("EXIT_CODE_START")
+            val commandFinishMarkerIndex = value.indexOf("COMMAND_FINISH_MARKER")
+            val content = value.substring(0, exitCodeMarkerIndex)
+            val exitCode = value.substring(exitCodeMarkerIndex + "EXIT_CODE_START".length, commandFinishMarkerIndex).toIntOrNull()
+            AdbShellResponse(content, null, exitCode)
+        } else {
+            openShellV2(command).readAll()
         }
     }
 
     @Throws(IOException::class)
-    fun openShell(
-        command: String = "",
-        version: ShellProtocol = if (getDeviceApiLevel() >= 24) ShellProtocol.V2 else ShellProtocol.V1,
-        interactive: Boolean = false,
-    ): AdbShellStream {
-        return when (version) {
-            ShellProtocol.V1 -> {
-                val stream = open("exec:$command")
-                AdbShellV1Stream(stream)
-            }
-            ShellProtocol.V2 -> {
-                val stream = open("shell,v2,raw:$command")
-                AdbShellV2Stream(stream)
-            }
+    fun openShellV1(
+        command: String
+    ): AdbShellV1Stream {
+        return AdbShellV1Stream(open("exec:$command"))
+    }
+
+    @Throws(IOException::class)
+    fun openShellV2(
+        command: String
+    ): AdbShellV2Stream {
+        if (getDeviceApiLevel() < 24) {
+            error("Shell V2 protocol is not available on API < 24")
         }
+        return AdbShellV2Stream(open("shell,v2,raw:$command"))
     }
 
     @Throws(IOException::class)

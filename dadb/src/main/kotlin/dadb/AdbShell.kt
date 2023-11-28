@@ -25,6 +25,7 @@ import dadb.AdbShellPacket.StdOut
 import okio.Buffer
 import okio.Options
 import java.io.ByteArrayOutputStream
+import java.io.Closeable
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.util.concurrent.TimeUnit
@@ -37,10 +38,10 @@ const val ID_CLOSE_STDIN = 3
 
 class AdbShellV2Stream(
         private val stream: AdbStream
-) : AdbShellStream {
+) : Closeable {
 
     @Throws(IOException::class)
-    override fun readAll(): AdbShellResponse {
+    fun readAll(): AdbShellResponse {
         val output = StringBuilder()
         val errorOutput = StringBuilder()
         while (true) {
@@ -62,7 +63,7 @@ class AdbShellV2Stream(
     }
 
     @Throws(IOException::class)
-    override fun read(): AdbShellPacket {
+    fun read(): AdbShellPacket {
         stream.source.apply {
             val id = checkId(readByte().toInt())
             val length = checkLength(id, readIntLe())
@@ -77,12 +78,12 @@ class AdbShellV2Stream(
     }
 
     @Throws(IOException::class)
-    override fun write(string: String) {
+    fun write(string: String) {
         write(ID_STDIN, string.toByteArray())
     }
 
     @Throws(IOException::class)
-    override fun write(id: Int, payload: ByteArray?) {
+    fun write(id: Int, payload: ByteArray?) {
         stream.sink.apply {
             writeByte(id)
             writeIntLe(payload?.size ?: 0)
@@ -142,31 +143,33 @@ class AdbShellResponse(
 
 class AdbShellV1Stream(
     private val stream: AdbStream
-) : AdbShellStream {
+) : Closeable {
 
-    @Throws(IOException::class)
-    override fun readAll(): AdbShellResponse {
-        val data = read()
-        return AdbShellResponse(data.payload.toString(Charsets.UTF_8), null, null)
-    }
-
-    override fun read(): AdbShellPacket {
+    fun read(): String? {
         val buffer = Buffer()
         val out = ByteArrayOutputStream()
-        try {
-            while (stream.source.read(buffer, 2048L) > 0) {
-                buffer.writeTo(out)
-                buffer.flush()
-            }
-        } catch (_: SocketTimeoutException) { }
-        return StdOut(out.toByteArray())
+        val bytesRead = stream.source.read(buffer, 1024)
+        if (bytesRead == -1L) {
+            return null
+        }
+        buffer.writeTo(out, bytesRead)
+        buffer.flush()
+        return out.toByteArray().toString(Charsets.UTF_8)
     }
 
-    override fun write(string: String) {
-        write(0, string.toByteArray())
+    fun readAll(): String {
+        val sb = StringBuilder()
+        while (!stream.source.exhausted()) {
+            read()?.let { sb.append(it) }
+        }
+        return sb.toString()
     }
 
-    override fun write(id: Int, payload: ByteArray?) {
+    fun write(string: String) {
+        write(string.toByteArray())
+    }
+
+    fun write(payload: ByteArray?) {
         with(stream.sink) {
             if (payload != null) write(payload)
             flush()
@@ -176,19 +179,4 @@ class AdbShellV1Stream(
     override fun close() {
         stream.close()
     }
-}
-
-interface AdbShellStream : AutoCloseable {
-
-    @Throws(IOException::class)
-    fun readAll(): AdbShellResponse
-
-    @Throws(IOException::class)
-    fun read(): AdbShellPacket
-
-    @Throws(IOException::class)
-    fun write(string: String)
-
-    @Throws(IOException::class)
-    fun write(id: Int, payload: ByteArray? = null)
 }

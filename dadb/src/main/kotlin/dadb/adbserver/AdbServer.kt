@@ -134,7 +134,7 @@ private class AdbServerDadb constructor(
             features.split(",").toSet()
         }
         // ALWAYS to this with protocol 1, otherwise we will end up in endless recursion
-        deviceApiLevel = openShell("getprop ro.build.version.sdk", ShellProtocol.V1).readAll().output.trim().toIntOrNull() ?: error("Failed to capture device API level")
+        deviceApiLevel = openShellV1("getprop ro.build.version.sdk").readAll().trim().toIntOrNull() ?: error("Failed to capture device API level")
     }
 
     override fun open(destination: String): AdbStream {
@@ -142,7 +142,6 @@ private class AdbServerDadb constructor(
         val socketChannel = SocketChannel.open()
         socketChannel.connect(InetSocketAddress(host, port))
         val socket = socketChannel.socket()
-        socket.soTimeout = 300
         AdbServer.send(socket, deviceQuery)
         AdbServer.send(socket, destination)
         return object : AdbStream {
