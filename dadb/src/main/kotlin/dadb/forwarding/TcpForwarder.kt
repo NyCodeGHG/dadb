@@ -39,6 +39,7 @@ internal class TcpForwarder(
                 handleForwarding()
             } catch (ignored: SocketException) {
                 // Do nothing
+                ignored.printStackTrace()
             } catch (e: IOException) {
                 log { "could not start TCP port forwarding: ${e.message}" }
             } finally {
@@ -60,6 +61,8 @@ internal class TcpForwarder(
         while (!Thread.interrupted()) {
             val client = serverRef.accept()
 
+            println("New connection!")
+
             clientExecutor?.execute {
                 val adbStream = dadb.open("tcp:$targetPort")
 
@@ -76,6 +79,7 @@ internal class TcpForwarder(
                         client.sink().buffer()
                     )
                 } finally {
+                    println("Closing ADB stream")
                     adbStream.close()
                     client.close()
 
@@ -117,17 +121,21 @@ internal class TcpForwarder(
                 try {
                     if (source.read(sink.buffer, 256) >= 0) {
                         sink.flush()
+                        println("forwarding")
                     } else {
                         return
                     }
                 } catch (ignored: IOException) {
                     // Do nothing
+                    ignored.printStackTrace()
                 }
             }
         } catch (ignored: InterruptedException) {
             // Do nothing
+            ignored.printStackTrace()
         } catch (ignored: InterruptedIOException) {
             // do nothing
+            ignored.printStackTrace()
         }
     }
 
