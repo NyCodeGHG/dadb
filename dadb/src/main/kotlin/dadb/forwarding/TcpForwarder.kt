@@ -64,16 +64,20 @@ internal class TcpForwarder(
             println("New connection!")
 
             clientExecutor?.execute {
+                println("Opening adb stream")
                 val adbStream = dadb.open("tcp:$targetPort")
 
                 val readerThread = thread {
+                    println("reader thread start")
                     forward(
                         client.getInputStream().source(),
                         adbStream.sink
                     )
+                    println("reader thread end")
                 }
 
                 try {
+                    println("writer thread start")
                     forward(
                         adbStream.source,
                         client.sink().buffer()
